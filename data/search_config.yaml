@@ -1,0 +1,32 @@
+# Job search configuration — safe to commit (no personal info)
+
+keywords:
+  - "machine learning engineer"
+  - "MLOps engineer"
+  - "AI engineer"
+  - "data scientist"
+  - "NLP engineer"
+
+location:
+  preferred: "Remote"
+  also_consider:
+    - "New York, NY"
+    - "San Francisco, CA"
+
+job_type: "full-time"         # full-time / part-time / contract / internship
+experience_level: "mid"       # entry / mid / senior
+
+sources:
+  linkedin: true               # discovery only, no automated apply
+  remoteok: true               # free public API, remote-only jobs
+  handshake: false             # requires authenticated session cookies — see scrapers/handshake.py
+  hiringcafe: false            # blocks scrapers (Cloudflare); replaced by remoteok
+
+filters:
+  exclude_companies: []        # add companies you don't want
+  min_match_score: 0.60        # skip jobs Claude scores below this
+  max_daily_applications: 3    # hard cap per day
+
+scheduling:
+  apply_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+  # cron: "0 9 * * 1-5"       # uncomment when ready for automation

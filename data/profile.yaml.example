@@ -1,0 +1,70 @@
+# Copy this file to profile.yaml and fill in your details.
+# profile.yaml is gitignored — it will never be committed.
+
+personal:
+  name: "Your Full Name"
+  email: "your.email@gmail.com"
+  phone: "+1-555-000-0000"
+  location: "City, State"
+  linkedin: "https://linkedin.com/in/yourhandle"
+  github: "https://github.com/yourusername"
+  website: ""  # optional
+
+summary: >
+  One or two sentence professional summary. This is used as a starting point
+  for the cover letter and resume objective. Be specific about your role and goals.
+
+education:
+  - degree: "M.S. Computer Science"
+    school: "University Name"
+    location: "City, State"
+    graduation: "May 2024"
+    gpa: "3.9"
+    relevant_courses:
+      - "Machine Learning"
+      - "Deep Learning"
+
+  - degree: "B.S. Computer Science"
+    school: "University Name"
+    location: "City, State"
+    graduation: "May 2022"
+    gpa: ""
+
+experience:
+  - title: "Job Title"
+    company: "Company Name"
+    location: "City, State / Remote"
+    start: "June 2022"
+    end: "Present"
+    bullets:
+      - "Accomplishment with measurable impact (numbers preferred)"
+      - "Another accomplishment"
+
+skills:
+  languages:
+    - Python
+    - SQL
+  frameworks:
+    - PyTorch
+    - scikit-learn
+  tools:
+    - Docker
+    - AWS
+    - Git
+  areas:
+    - Machine Learning
+    - NLP
+    - MLOps
+
+projects:
+  - name: "Project Name"
+    github_url: "https://github.com/you/project"
+    description: "One sentence description of what it does and the impact."
+    tech: ["Python", "PyTorch", "FastAPI"]
+    highlights:
+      - "Key achievement or metric"
+
+certifications: []
+  # - name: "AWS Certified ML Specialty"
+  #   issuer: "Amazon"
+  #   date: "2023"

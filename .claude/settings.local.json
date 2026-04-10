@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.jobs/bin/python:*)",
+      "Bash(.jobs/bin/pip show:*)",
+      "Bash(.jobs/bin/pip install:*)",
+      "Bash(kpsewhich fontawesome5.sty)",
+      "Bash(kpsewhich fontawesome.sty)"
+    ]
+  }
+}

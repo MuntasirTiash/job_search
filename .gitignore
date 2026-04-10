@@ -1,0 +1,28 @@
+# Personal data — never commit
+ignore/
+.env
+data/profile.yaml
+data/preferences.yaml
+data/job_queue.db
+credentials/
+
+# Generated artifacts
+output/
+*.pdf
+templates/resume.tex.jinja2
+templates/cover_letter.md.jinja2
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.jobs/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

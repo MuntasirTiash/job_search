@@ -1,0 +1,85 @@
+% ATS-friendly LaTeX resume template
+% Copy to resume.tex.jinja2 and replace placeholder values with your own.
+% Jinja2 variables ({{ }}) are filled in by resume_agent.py per job application.
+
+\documentclass[11pt, letterpaper]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage[T1]{fontenc}
+
+\hypersetup{colorlinks=true, urlcolor=black}
+\setlength{\parindent}{0pt}
+\pagestyle{empty}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{6pt}{4pt}
+
+\begin{document}
+
+%--- Header ---
+\begin{center}
+    {\LARGE \textbf{ {{- name -}} }} \\[4pt]
+    {{ location }} \quad|\quad
+    \href{mailto:{{ email }}}{{ email }} \quad|\quad
+    {{ phone }} \\
+    \href{ {{- linkedin -}} }{LinkedIn} \quad|\quad
+    \href{ {{- github -}} }{GitHub}
+    {%- if website %} \quad|\quad \href{ {{- website -}} }{Portfolio} {%- endif %}
+\end{center}
+
+%--- Summary ---
+\section{Summary}
+{{ summary }}
+
+%--- Experience ---
+\section{Experience}
+{% for job in experience %}
+\textbf{ {{- job.title -}} } \hfill {{ job.start }} -- {{ job.end }} \\
+\textit{ {{- job.company -}} } \hfill {{ job.location }}
+\begin{itemize}[leftmargin=*, noitemsep, topsep=2pt]
+{% for bullet in job.bullets %}
+    \item {{ bullet }}
+{% endfor %}
+\end{itemize}
+{% endfor %}
+
+%--- Skills ---
+\section{Skills}
+\textbf{Languages:} {{ skills.languages | join(', ') }} \\
+\textbf{Frameworks \& Libraries:} {{ skills.frameworks | join(', ') }} \\
+\textbf{Tools \& Platforms:} {{ skills.tools | join(', ') }}
+
+%--- Projects ---
+\section{Selected Projects}
+{% for project in highlighted_projects %}
+\textbf{ {{- project.name -}} }
+{%- if project.github_url %} --- \href{ {{- project.github_url -}} }{GitHub}{%- endif %} \\
+\textit{ {{- project.tech | join(', ') -}} } \\
+{{ project.description }}
+\begin{itemize}[leftmargin=*, noitemsep, topsep=2pt]
+{% for h in project.highlights %}
+    \item {{ h }}
+{% endfor %}
+\end{itemize}
+{% endfor %}
+
+%--- Education ---
+\section{Education}
+{% for edu in education %}
+\textbf{ {{- edu.degree -}} } \hfill {{ edu.graduation }} \\
+{{ edu.school }}, {{ edu.location }}
+{%- if edu.gpa %} \hfill GPA: {{ edu.gpa }}{%- endif %}
+{% endfor %}
+
+{% if certifications %}
+%--- Certifications ---
+\section{Certifications}
+{% for cert in certifications %}
+\textbf{ {{- cert.name -}} } — {{ cert.issuer }}, {{ cert.date }} \\
+{% endfor %}
+{% endif %}
+
+\end{document}
