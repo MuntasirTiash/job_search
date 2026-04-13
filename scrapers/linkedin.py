@@ -43,17 +43,38 @@ HEADERS = {
 REQUEST_TIMEOUT = 15  # seconds per HTTP call
 
 
-def _fetch_job_cards(keyword: str, location: str, start: int = 0, max_results: int = 5) -> list[dict]:
+_JOB_TYPE_MAP = {
+    "full-time":  "F",
+    "part-time":  "P",
+    "contract":   "C",
+    "internship": "I",
+    "temporary":  "T",
+    "volunteer":  "V",
+    "other":      "O",
+}
+
+
+def _fetch_job_cards(
+    keyword: str,
+    location: str,
+    start: int = 0,
+    max_results: int = 5,
+    job_type: str = "full-time",
+    max_age_days: int | None = None,
+) -> list[dict]:
     """Call LinkedIn's guest search API and return a list of job dicts."""
+    jt_code = _JOB_TYPE_MAP.get(job_type.lower(), "F")
     params = {
         "keywords": keyword,
         "location": location,
-        "f_JT": "F",       # full-time
+        "f_JT": jt_code,
         "f_WT": "2",       # remote
         "start": str(start),
         "count": str(max_results),
         "sortBy": "DD",    # most recent
     }
+    if max_age_days:
+        params["f_TPR"] = f"r{max_age_days * 86400}"  # seconds
     try:
         resp = requests.get(SEARCH_API, params=params, headers=HEADERS, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
@@ -133,13 +154,24 @@ def _fetch_job_description(job_url: str) -> str:
 class LinkedInScraper(BaseScraper):
     """Requests + BeautifulSoup scraper for LinkedIn public job listings."""
 
+    def __init__(self, keywords, location, also_consider=None,
+                 job_type: str = "full-time", max_age_days: int | None = None):
+        super().__init__(keywords, location, also_consider)
+        self.job_type = job_type
+        self.max_age_days = max_age_days
+
     def scrape(self, max_per_keyword: int = 5) -> list[RawJob]:
         results: list[RawJob] = []
         seen_urls: set[str] = set()
 
         for keyword in self.keywords:
             print(f"    [linkedin] Searching: {keyword!r} @ {self.location}")
-            cards = _fetch_job_cards(keyword, self.location, max_results=max_per_keyword)
+            cards = _fetch_job_cards(
+                keyword, self.location,
+                max_results=max_per_keyword,
+                job_type=self.job_type,
+                max_age_days=self.max_age_days,
+            )
 
             count = 0
             for card in cards:

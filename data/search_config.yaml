@@ -1,11 +1,15 @@
 # Job search configuration — safe to commit (no personal info)
 
 keywords:
-  - "machine learning engineer"
-  - "MLOps engineer"
-  - "AI engineer"
-  - "data scientist"
-  - "NLP engineer"
+  - "AI agent intern"
+  - "LLM intern"
+  - "machine learning intern"
+  - "AI engineer intern"
+  - "data science intern"
+  - "NLP intern"
+  - "VLM intern"
+  - "generative AI intern"
+  - "AI research intern"
 
 location:
   preferred: "Remote"
@@ -13,8 +17,8 @@ location:
     - "New York, NY"
     - "San Francisco, CA"
 
-job_type: "full-time"         # full-time / part-time / contract / internship
-experience_level: "mid"       # entry / mid / senior
+job_type: "internship"
+experience_level: "entry"     # entry / mid / senior
 
 sources:
   linkedin: true               # discovery only, no automated apply
@@ -26,7 +30,20 @@ filters:
   exclude_companies: []        # add companies you don't want
   min_match_score: 0.60        # skip jobs Claude scores below this
   max_daily_applications: 3    # hard cap per day
+  max_age_days: 7              # only consider jobs posted in the last N days
+  require_sponsorship: true    # drop jobs that explicitly deny CPT/OPT/H1B sponsorship
 
 scheduling:
   apply_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
   # cron: "0 9 * * 1-5"       # uncomment when ready for automation
+
+# --- Phase 5: Application Automation ---
+apply:
+  auto_apply: false            # SAFETY: must be explicitly set to true before any submission
+  headless: true               # set false for visual debugging
+  submit_timeout_ms: 30000     # how long to wait for post-submit confirmation page
+  platforms:
+    greenhouse: true           # boards.greenhouse.io — fully implemented
+    lever: true                # jobs.lever.co — full implementation
+    workday: false             # *.myworkdayjobs.com — not yet implemented
+    ashby: false               # app.ashbyhq.com — not yet implemented

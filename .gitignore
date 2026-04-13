@@ -1,3 +1,6 @@
+# Projects folder — each project is its own repo, not part of job_search
+Projects/
+
 # Personal data — never commit
 ignore/
 .env

@@ -6,6 +6,8 @@ Usage:
   python main.py --status            # show today's queue and Notion approval status
   python main.py --run               # process all Approved jobs through full pipeline
   python main.py --run --job-id XYZ  # run pipeline for one specific job
+  python main.py --apply             # run application step for resume-ready jobs
+  python main.py --apply --job-id XYZ  # apply for one specific job
   python main.py --gmail             # run Gmail labeling pass
   python main.py --recruiter         # run recruiter finder for Applied jobs
 """
@@ -35,18 +37,22 @@ def cmd_run(job_id: str | None = None):
         run_pipeline_for_approved()
 
 
+def cmd_apply(job_id: str | None = None):
+    from agents.notion_agent import run_apply_for_applying, run_apply_for_job
+    if job_id:
+        run_apply_for_job(job_id)
+    else:
+        run_apply_for_applying()
+
+
 def cmd_gmail():
-    print("[gmail] Running Gmail labeling pass...")
-    # Phase 6
-    # from agents.gmail_agent import GmailAgent
-    print("[gmail] Not yet implemented — build Phase 6 first.")
+    from agents.gmail_agent import run_gmail_pass
+    run_gmail_pass()
 
 
 def cmd_recruiter():
-    print("[recruiter] Finding recruiters for Applied jobs...")
-    # Phase 6
-    # from agents.recruiter_agent import RecruiterAgent
-    print("[recruiter] Not yet implemented — build Phase 6 first.")
+    from agents.recruiter_agent import run_recruiter_pass
+    run_recruiter_pass()
 
 
 def main():
@@ -55,7 +61,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="With --discover: scrape but don't post to Notion")
     parser.add_argument("--status", action="store_true", help="Show today's queue status")
     parser.add_argument("--run", action="store_true", help="Run pipeline for approved jobs")
-    parser.add_argument("--job-id", type=str, help="Target a specific job ID with --run")
+    parser.add_argument("--apply", action="store_true", help="Run application automation for resume-ready jobs")
+    parser.add_argument("--job-id", type=str, help="Target a specific job ID with --run or --apply")
     parser.add_argument("--gmail", action="store_true", help="Run Gmail labeling pass")
     parser.add_argument("--recruiter", action="store_true", help="Find recruiters for applied jobs")
 
@@ -67,6 +74,8 @@ def main():
         cmd_status()
     elif args.run:
         cmd_run(job_id=args.job_id)
+    elif args.apply:
+        cmd_apply(job_id=args.job_id)
     elif args.gmail:
         cmd_gmail()
     elif args.recruiter:

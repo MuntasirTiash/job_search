@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tools.db import get_known_urls, update_job
 from tools.notion_tool import create_job_page
+from tools.visa_tool import check_sponsorship_from_text
 from agents.job_analyzer import analyze_job
 from scrapers.base import RawJob
 
@@ -25,7 +26,7 @@ CONFIG_PATH = Path(__file__).parent.parent / "data" / "search_config.yaml"
 # Max new jobs to add to Notion per --discover run (not the same as daily application cap)
 DEFAULT_MAX_PER_RUN = 15
 # Max parallel Claude calls for analysis (each costs API quota)
-ANALYSIS_WORKERS = 3
+ANALYSIS_WORKERS = 1  # reduced to avoid Claude rate limits (5 req/min on free tier)
 
 
 def load_config() -> dict:
@@ -44,7 +45,10 @@ def _build_scrapers(config: dict):
 
     if sources.get("linkedin"):
         from scrapers.linkedin import LinkedInScraper
-        scrapers.append(LinkedInScraper(keywords, location, also_consider))
+        job_type = config.get("job_type", "full-time")
+        max_age_days = config.get("filters", {}).get("max_age_days", None)
+        scrapers.append(LinkedInScraper(keywords, location, also_consider,
+                                        job_type=job_type, max_age_days=max_age_days))
 
     if sources.get("remoteok"):
         from scrapers.remoteok import RemoteOKScraper
@@ -80,19 +84,34 @@ def _analyze_and_post(raw: RawJob, min_score: float) -> dict | None:
         print(f"    [skip] {title} @ {company} — score {score:.2f} < {min_score}")
         return None
 
+    # Build Notion match rationale with visa info appended
+    visa_tag = {
+        "yes":     "✅ Sponsorship confirmed",
+        "no":      "❌ No sponsorship",
+        "unknown": "⚠️ Sponsorship unknown",
+    }.get(job_data.get("visa_sponsorship", "unknown"), "⚠️ Sponsorship unknown")
+
+    h1b_note = ""
+    if job_data.get("h1b_count", 0) > 0:
+        h1b_note = f" | H1B filings 2023-2025: {job_data['h1b_count']}"
+
+    rationale = (
+        f"{job_data.get('rationale', '')} | {visa_tag}{h1b_note}"
+    )
+
     # Create Notion page (status: Pending Review)
     try:
         page_id = create_job_page(
             title=title,
             company=company,
-            location=job_data.get("location", raw.location),
-            url=raw.url,
+            job_url=raw.url,
             source=raw.source,
             match_score=score,
-            match_rationale=job_data.get("rationale", ""),
+            match_rationale=rationale,
+            careers_url=job_data.get("company_careers_url", ""),
         )
         update_job(job_data["job_id"], notion_page_id=page_id)
-        print(f"    [added]  {title} @ {company} — score {score:.2f} → Notion")
+        print(f"    [added]  {title} @ {company} — score {score:.2f} | visa:{job_data.get('visa_sponsorship','?')} → Notion")
     except Exception as exc:
         print(f"    [notion] Failed to create page for {title}: {exc}")
 
@@ -150,6 +169,21 @@ def run_discovery(max_per_run: int = DEFAULT_MAX_PER_RUN, dry_run: bool = False)
 
     # Respect max_per_run cap
     new_jobs = new_jobs[:max_per_run]
+
+    # --- Pre-filter: drop hard "no sponsorship" jobs before calling Claude ---
+    require_sponsorship = config.get("filters", {}).get("require_sponsorship", True)
+    if require_sponsorship:
+        filtered = []
+        for raw in new_jobs:
+            quick = check_sponsorship_from_text(raw.posting_text)
+            if quick["visa_sponsorship"] == "no":
+                print(f"    [visa-skip] {raw.title} @ {raw.company} — no sponsorship offered")
+            else:
+                filtered.append(raw)
+        skipped = len(new_jobs) - len(filtered)
+        if skipped:
+            print(f"[discover] Skipped {skipped} job(s) with explicit no-sponsorship.")
+        new_jobs = filtered
 
     if dry_run:
         print(f"[discover] Dry run — would analyze {len(new_jobs)} jobs:")

@@ -74,6 +74,37 @@ Return ONLY a JSON array of project names to include (most relevant first):
     return [p for p in profile["research"] if p["name"] in selected_names]
 
 
+def select_projects(job_data: dict, profile: dict) -> list[dict]:
+    """Ask Claude to pick the 2-3 most relevant practical projects for this job."""
+    if not profile.get("projects"):
+        return []
+    projects_summary = "\n".join(
+        f"- {p['name']}: {p['description']} Tech: {', '.join(p['tech'])}"
+        for p in profile["projects"]
+    )
+
+    prompt = f"""Select the 2-3 most relevant practical/engineering projects for this job application.
+
+JOB:
+Title: {job_data['title']} at {job_data['company']}
+Tech stack: {json.dumps(job_data.get('tech_stack', []))}
+Key requirements: {json.dumps(job_data.get('key_requirements', []))}
+
+AVAILABLE PROJECTS:
+{projects_summary}
+
+Return ONLY a JSON array of project names to include (most relevant first):
+["Project Name 1", "Project Name 2"]"""
+
+    response = CLIENT.messages.create(
+        model=MODEL,
+        max_tokens=256,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    selected_names = parse_json(response.content[0].text)
+    return [p for p in profile["projects"] if p["name"] in selected_names]
+
+
 def generate_tailored_skills(job_data: dict, profile: dict, user_prompt: str = "", pref_context: str = "") -> str:
     """Ask Claude to rewrite the skills paragraph, emphasizing job-relevant skills."""
     extra = ""
@@ -88,6 +119,8 @@ CANDIDATE SKILLS:
 ML areas: {', '.join(profile['skills']['ml_areas'])}
 Models: {', '.join(profile['skills']['models'])}
 Frameworks: {', '.join(profile['skills']['frameworks'])}
+Software Engineering: {', '.join(profile['skills'].get('software_engineering', []))}
+Testing: {', '.join(profile['skills'].get('testing', []))}
 Tools: {', '.join(profile['skills']['tools'])}
 
 JOB:
@@ -98,18 +131,26 @@ ATS keywords: {json.dumps(job_data.get('ats_keywords', []))}
 Rules:
 - Keep all the candidate's actual skills (don't invent new ones)
 - Put the most job-relevant skills FIRST in each line
-- Format as plain text lines (no LaTeX, no markdown) — this goes inside a tabular environment
+- Format as LaTeX tabular rows: Category & items \\\\
 - Keep to 6-8 lines maximum
-- Separate logical groups with commas, end each line with \\\\
+- Separate logical groups with commas within a cell
+- CRITICAL: Category names (left column) must be SHORT — maximum 2 words, 15 characters. Use abbreviations: "Languages" not "Languages and Tools", "SE Skills" not "Software Engineering Skills", "Algorithms" not "Data Structures and Algorithms"
+- CRITICAL: Category names must NEVER contain & — write "and" if needed but prefer shorter names
+- CRITICAL: Each row must have exactly ONE & separating left and right column
 
-Return ONLY the formatted skills text, nothing else."""
+Return ONLY the tabular row content, nothing else."""
 
     response = CLIENT.messages.create(
         model=MODEL,
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.content[0].text.strip()
+    raw = response.content[0].text.strip()
+    # Strip markdown code fences if Claude wrapped output in ```latex ... ``` or ``` ... ```
+    import re as _re
+    raw = _re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+    raw = _re.sub(r"\n?```$", "", raw)
+    return raw.strip()
 
 
 def generate_cover_letter(job_data: dict, profile: dict, user_prompt: str = "", pref_context: str = "") -> dict:
@@ -203,6 +244,9 @@ def generate_resume(job_data: dict, job_id: str, user_prompt: str = "") -> dict:
     print("  Selecting research projects...")
     selected_research = select_research_projects(job_data, profile)
 
+    print("  Selecting practical projects...")
+    selected_projects = select_projects(job_data, profile)
+
     print("  Generating tailored skills...")
     tailored_skills = generate_tailored_skills(job_data, profile, user_prompt, pref_context)
 
@@ -229,6 +273,7 @@ def generate_resume(job_data: dict, job_id: str, user_prompt: str = "") -> dict:
         profile=profile,
         tailored_skills=tailored_skills,
         selected_research=selected_research,
+        selected_projects=selected_projects,
     )
 
     tex_path = out_dir / "resume.tex"

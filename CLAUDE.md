@@ -18,8 +18,10 @@ All LLM work uses `anthropic` SDK with `claude-sonnet-4-6`. Human review is the 
 python main.py --discover                   # scrape jobs, score, add to Notion
 python main.py --discover --dry-run         # scrape only, show what would be analyzed
 python main.py --status                     # show today's queue
-python main.py --run                        # process all Approved jobs
+python main.py --run                        # process all Approved jobs (resume + apply)
 python main.py --run --job-id XYZ          # run one specific job
+python main.py --apply                      # apply-only pass for resume-ready jobs
+python main.py --apply --job-id XYZ        # apply for one specific job
 python main.py --gmail                      # label job emails in Gmail
 python main.py --recruiter                  # find recruiters for Applied jobs
 ```
@@ -78,8 +80,8 @@ python -c "from tools.db import init_db; init_db()"
 - **Phase 2** (Core Intelligence): Done — `job_analyzer.py`, `resume_agent.py`, all tools. Requires `pdflatex` (`sudo apt install texlive-latex-extra`) and `ignore/resume.cls` (copy alongside your `resume.tex.jinja2`).
 - **Phase 3** (Notion): Done — `tools/notion_tool.py`, `agents/notion_agent.py`, `--run` and `--status` wired. Requires `NOTION_API_KEY` and `NOTION_DATABASE_ID` in `.env`.
 - **Phase 4** (Scrapers): Done — `scrapers/linkedin.py` (requests+bs4 via LinkedIn guest API, no auth/browser needed), `scrapers/remoteok.py` (free public JSON API), `scrapers/handshake.py` (stub, needs session cookies), `scrapers/hiringcafe.py` (stub, Cloudflare-blocked). `agents/discover_agent.py` orchestrates scrape → dedupe (URL + title/company pair) → analyze (3-parallel Claude calls) → Notion. Use `--discover --dry-run` to test without posting.
-- **Phase 5** (Browser automation): Not started — `tools/browser_tool.py`, `agents/application_agent.py`
-- **Phase 6** (Recruiter & Gmail): Not started
+- **Phase 5** (Browser automation): Done — `tools/browser_tool.py` (`BrowserSession` Playwright context manager), `tools/screenshot_tool.py`, `agents/application_agent.py` (`apply_to_job()`, Greenhouse form filler + custom-question Claude pass, Lever stub). Safety gate: `apply.auto_apply: false` in `search_config.yaml` — form is filled and screenshotted but not submitted until explicitly set `true`. `--apply` runs the apply step standalone; `--run` runs the full pipeline (resume → verify → apply).
+- **Phase 6** (Recruiter & Gmail): Done — `tools/hunter_tool.py` (Hunter.io domain-search, filters recruiter/HR roles, guards free-tier quota), `agents/recruiter_agent.py` (finds recruiters for applied jobs, drafts cold-outreach email with Claude, stores in `recruiters` table, appends to Notion Notes), `tools/gmail_tool.py` (OAuth2 with token caching, label management, body extraction, HTML stripping), `agents/gmail_agent.py` (classifies emails with Claude into confirmation/interview/rejection/offer, applies `Jobs/*` Gmail labels, fuzzy-matches company to DB job, updates Notion Application Status). Requires Gmail OAuth setup: create Desktop credential in Google Cloud Console, set `GMAIL_CREDENTIALS_PATH` in `.env`, run `python tools/gmail_tool.py` once to cache token. Hunter.io capped at 20 jobs/run to protect free tier (25 searches/month).
 
 ## Required Environment Variables
 
@@ -98,9 +100,13 @@ The pipeline polls for `Agent Status == "Approved"`. On error, Agent Status is r
 Each agent has an `if __name__ == "__main__":` block with a sample job for quick manual testing:
 
 ```bash
-python agents/job_analyzer.py   # tests extract + score with a hardcoded posting
-python agents/resume_agent.py   # generates resume/cover letter to output/
-python tools/db.py              # initializes the database
+python agents/job_analyzer.py        # tests extract + score with a hardcoded posting
+python agents/resume_agent.py        # generates resume/cover letter to output/
+python agents/application_agent.py   # dry-run apply against Greenhouse test URL (auto_apply: false)
+python agents/recruiter_agent.py     # runs recruiter pass for applied jobs
+python agents/gmail_agent.py         # runs Gmail labeling pass
+python tools/gmail_tool.py           # one-time OAuth setup — run this first before --gmail
+python tools/db.py                   # initializes the database
 ```
 
 After each compile, `output/<slug>/overflow_report.json` contains the layout check result. Any `Overfull \hbox` in the LaTeX log is surfaced as a warning and posted to Notion notes.

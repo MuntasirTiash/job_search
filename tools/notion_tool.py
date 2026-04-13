@@ -25,7 +25,14 @@ from notion_client import Client
 
 
 def _client() -> Client:
-    return Client(auth=os.environ.get("NOTION_API_KEY", ""), timeout_ms=30000)
+    from notion_client.client import ClientOptions
+    return Client(
+        options=ClientOptions(
+            auth=os.environ.get("NOTION_API_KEY", ""),
+            timeout_ms=30000,
+            notion_version="2022-06-28",  # pin to stable version that supports databases.query
+        )
+    )
 
 
 def _database_id() -> str:
@@ -139,23 +146,29 @@ def update_page(page_id: str, **fields):
 # Read operations
 # ---------------------------------------------------------------------------
 
+def _query_database(notion, db_id: str, filter_body: dict) -> list[dict]:
+    """Query a Notion database (uses databases/{id}/query, requires API version <= 2022-06-28)."""
+    response = notion.request(
+        path=f"databases/{db_id}/query",
+        method="POST",
+        body={"filter": filter_body},
+    )
+    return response.get("results", [])
+
+
 def get_approved_jobs() -> list[dict]:
     """Return all pages where Agent Status == 'Approved'."""
     notion = _client()
-    response = notion.databases.query(
-        database_id=_database_id(),
-        filter={"property": "Agent Status", "select": {"equals": "Approved"}},
-    )
-    return [_parse_page(p) for p in response["results"]]
+    results = _query_database(notion, _database_id(),
+                              {"property": "Agent Status", "select": {"equals": "Approved"}})
+    return [_parse_page(p) for p in results]
 
 
 def get_jobs_with_agent_status(status: str) -> list[dict]:
     notion = _client()
-    response = notion.databases.query(
-        database_id=_database_id(),
-        filter={"property": "Agent Status", "select": {"equals": status}},
-    )
-    return [_parse_page(p) for p in response["results"]]
+    results = _query_database(notion, _database_id(),
+                              {"property": "Agent Status", "select": {"equals": status}})
+    return [_parse_page(p) for p in results]
 
 
 def get_pipeline_summary() -> dict[str, int]:
@@ -165,22 +178,16 @@ def get_pipeline_summary() -> dict[str, int]:
     summary: dict[str, int] = {}
 
     for status in ("Pending Review", "Approved", "Applying"):
-        response = notion.databases.query(
-            database_id=db_id,
-            filter={"property": "Agent Status", "select": {"equals": status}},
-        )
-        count = len(response["results"])
-        if count:
-            summary[f"[Agent] {status}"] = count
+        results = _query_database(notion, db_id,
+                                  {"property": "Agent Status", "select": {"equals": status}})
+        if results:
+            summary[f"[Agent] {status}"] = len(results)
 
     for status in ("Applied", "Preparing Interview", "Interview ✅", "Done", "Rejected"):
-        response = notion.databases.query(
-            database_id=db_id,
-            filter={"property": "Application Status", "status": {"equals": status}},
-        )
-        count = len(response["results"])
-        if count:
-            summary[f"[App]   {status}"] = count
+        results = _query_database(notion, db_id,
+                                  {"property": "Application Status", "status": {"equals": status}})
+        if results:
+            summary[f"[App]   {status}"] = len(results)
 
     return summary
 

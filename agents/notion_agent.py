@@ -12,6 +12,7 @@ Multiple jobs are processed concurrently (one thread per job).
 
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 from tools.db import get_conn, get_todays_queue, update_job
 from tools.notion_tool import (
@@ -90,6 +91,64 @@ def _push_results_to_notion(page_id: str, result: dict, verification_report: str
 
 
 # ---------------------------------------------------------------------------
+# Phase 5: Application automation helper
+# ---------------------------------------------------------------------------
+
+def _run_apply_step(
+    job_data: dict,
+    job_id: str,
+    result: dict,
+    page_id: str,
+    user_prompt: str,
+):
+    """
+    Call application_agent.apply_to_job() and update Notion/DB based on outcome.
+
+    Isolated from _process_one_job's outer try/except so an apply failure
+    does NOT roll back resume generation. Imports are deferred so Playwright
+    is not loaded when auto_apply=false (the safe default).
+
+    Returns an ApplicationResult (or a minimal duck-typed object on import error).
+    """
+    from agents.application_agent import apply_to_job, ApplicationResult
+    from agents.resume_agent import load_profile
+
+    profile = load_profile()
+    try:
+        apply_result = apply_to_job(
+            job_data=job_data,
+            job_id=job_id,
+            output_dir=result["output_dir"],
+            profile=profile,
+            resume_pdf=result["pdf_path"],
+            cover_letter_path=result["cover_letter_path"],
+            page_id=page_id,
+        )
+    except Exception as exc:
+        print(f"  [apply] Exception during apply_to_job: {exc}")
+        return ApplicationResult(
+            success=False, platform="error", manual_required=True, error=str(exc)
+        )
+
+    if apply_result.success:
+        if page_id:
+            update_application_status(page_id, "Applied")
+            update_page(
+                page_id,
+                notes=(
+                    f"Applied via {apply_result.platform} on {apply_result.applied_date}"
+                    + (f"\n{apply_result.confirmation_url}" if apply_result.confirmation_url else "")
+                ),
+            )
+        update_job(job_id, status="applied", applied_date=apply_result.applied_date)
+        print(f"  [apply] SUCCESS — {apply_result.platform} | {apply_result.confirmation_url}")
+    elif apply_result.error and apply_result.error != "auto_apply disabled in config":
+        print(f"  [apply] Not applied: {apply_result.error}")
+
+    return apply_result
+
+
+# ---------------------------------------------------------------------------
 # Single-job pipeline (runs in its own thread)
 # ---------------------------------------------------------------------------
 
@@ -145,9 +204,19 @@ def _process_one_job(job_notion: dict) -> str:
         # --- Push everything to Notion ---
         _push_results_to_notion(page_id, result, verification_report)
 
+        # --- Application automation (Phase 5) ---
+        apply_result = _run_apply_step(job_data, job_id, result, page_id, user_prompt)
+
         ats = result["ats_score"]
+        apply_suffix = ""
+        if apply_result.success:
+            apply_suffix = f" | Applied ({apply_result.platform})"
+        elif apply_result.manual_required and apply_result.error != "auto_apply disabled in config":
+            apply_suffix = f" | Manual apply required ({apply_result.platform})"
+
         return (
             f"[done] {label} | ATS {ats['score_pct']} | PDF: {result['pdf_path']}"
+            + apply_suffix
         )
 
     except Exception as exc:
@@ -218,6 +287,103 @@ def run_pipeline_for_job(job_id: str):
     print(f"\n  PDF:  {result['pdf_path']}")
     print(f"  ATS:  {ats['score_pct']}")
     print(f"\n--- Verification Report ---\n{verification_report}")
+
+
+def run_apply_for_applying():
+    """
+    Standalone --apply pass: find all jobs with output_dir set and Agent Status
+    'Applying', then run only the apply step (skip resume generation).
+    """
+    from tools.db import get_jobs_by_status
+    rows = get_jobs_by_status("applying")
+    # Also pick up any that slipped through with status queued/scored but have an output_dir
+    # Primary target: rows already in 'applying' state
+    if not rows:
+        # fall back: look for jobs that completed resume generation (have output_dir)
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE output_dir IS NOT NULL AND output_dir != '' "
+                "AND (status = 'applying' OR status = 'queued')"
+            ).fetchall()
+
+    if not rows:
+        print("[apply] No jobs with a completed resume found.")
+        return
+
+    print(f"[apply] Found {len(rows)} job(s) with resume ready. Attempting application...\n")
+    for row in rows:
+        job_id  = row["id"]
+        title   = row["title"] or "Unknown"
+        company = row["company"] or "Unknown"
+        output_dir = row["output_dir"]
+        page_id = row["notion_page_id"] or ""
+
+        # Reconstruct minimal result dict
+        from pathlib import Path
+        out = Path(output_dir)
+        result = {
+            "output_dir": output_dir,
+            "pdf_path": str(out / "resume.pdf"),
+            "cover_letter_path": str(out / "cover_letter.md"),
+        }
+
+        job_data: dict = json.loads(row["job_data_json"]) if row["job_data_json"] else {}
+        job_data["job_id"]  = job_id
+        job_data["title"]   = title
+        job_data["company"] = company
+
+        print(f"  [{title} @ {company}]")
+        apply_result = _run_apply_step(job_data, job_id, result, page_id, "")
+
+        if apply_result.success:
+            print(f"    Applied via {apply_result.platform}")
+        elif apply_result.manual_required and apply_result.error != "auto_apply disabled in config":
+            print(f"    Manual apply required ({apply_result.platform}): {apply_result.error}")
+        else:
+            print(f"    Skipped: {apply_result.error or apply_result.platform}")
+
+
+def run_apply_for_job(job_id: str):
+    """Standalone apply step for a single job by its SQLite job_id."""
+    job_data = _load_job_by_id(job_id)
+    if not job_data:
+        print(f"[apply] Job '{job_id}' not found in database.")
+        return
+
+    page_id    = job_data.pop("_notion_page_id", "")
+    output_dir = job_data.pop("output_dir", None) or ""
+
+    if not output_dir:
+        # Try fetching from db row
+        with get_conn() as conn:
+            row = conn.execute("SELECT output_dir FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row:
+            output_dir = row["output_dir"] or ""
+
+    if not output_dir:
+        print(f"[apply] Job '{job_id}' has no generated resume yet. Run --run first.")
+        return
+
+    from pathlib import Path
+    out = Path(output_dir)
+    result = {
+        "output_dir": output_dir,
+        "pdf_path": str(out / "resume.pdf"),
+        "cover_letter_path": str(out / "cover_letter.md"),
+    }
+
+    title   = job_data.get("title", job_id)
+    company = job_data.get("company", "")
+    print(f"[apply] Running apply step for: {title} @ {company}")
+
+    apply_result = _run_apply_step(job_data, job_id, result, page_id, "")
+
+    if apply_result.success:
+        print(f"  Applied via {apply_result.platform} | {apply_result.confirmation_url}")
+    elif apply_result.manual_required:
+        print(f"  Manual apply required ({apply_result.platform}): {apply_result.error}")
+    else:
+        print(f"  Not applied: {apply_result.error}")
 
 
 def show_status():

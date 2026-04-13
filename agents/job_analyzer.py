@@ -14,6 +14,7 @@ import anthropic
 import yaml
 
 from tools.db import upsert_job, update_job, job_id_from_url
+from tools.visa_tool import get_visa_context
 
 CLIENT = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 MODEL = "claude-sonnet-4-6"
@@ -66,6 +67,23 @@ Return this exact JSON structure (no markdown, no explanation):
 
 def score_job(job_data: dict, profile: dict) -> dict:
     """Use Claude to score how well the job matches the candidate's profile."""
+    # Hard filter: if sponsorship is explicitly denied, score 0 immediately.
+    if job_data.get("visa_sponsorship") == "no":
+        return {
+            "match_score": 0.0,
+            "rationale": "Job explicitly does not offer visa sponsorship. Candidate requires CPT/OPT/H1B support.",
+            "strengths": [],
+            "gaps": ["No visa sponsorship offered"],
+        }
+
+    sponsorship_note = ""
+    if job_data.get("visa_sponsorship") == "yes":
+        sponsorship_note = "\nVisa sponsorship: CONFIRMED (CPT/OPT/H1B mentioned in posting)."
+    elif job_data.get("h1b_count", 0) > 0:
+        sponsorship_note = f"\nVisa sponsorship: LIKELY (company filed {job_data['h1b_count']} H1B petitions 2023-2025)."
+    else:
+        sponsorship_note = "\nVisa sponsorship: UNKNOWN — no mention in posting, no H1B history found. Consider this a risk."
+
     prompt = f"""You are evaluating how well a candidate's profile matches a job posting.
 
 CANDIDATE PROFILE SUMMARY:
@@ -75,6 +93,7 @@ CANDIDATE PROFILE SUMMARY:
 - Research: LLMs, NLP, Financial ML, Speech Processing, RAG
 - Publications: 3 conference papers (FMA, SFA 2025), 1 journal
 - Industry: Samsung R&D intern (computer vision), MetLife actuarial
+- Visa status: F-1 student requiring CPT/OPT authorization (no green card or citizenship){sponsorship_note}
 
 JOB:
 Title: {job_data['title']}
@@ -115,6 +134,10 @@ def analyze_job(
     print(f"  Extracting job data from posting...")
     job_data = extract_job_data(posting_text)
 
+    print(f"  Checking visa/sponsorship...")
+    visa_info = get_visa_context(job_data.get("company", ""), posting_text)
+    job_data.update(visa_info)  # merge into job_data so score_job can see it
+
     print(f"  Scoring match against profile...")
     score_data = score_job(job_data, profile)
 
@@ -133,6 +156,11 @@ def analyze_job(
         match_score=score_data["match_score"],
         match_rationale=score_data["rationale"],
         job_data_json=json.dumps(full_result),
+        visa_sponsorship=visa_info.get("visa_sponsorship", "unknown"),
+        cpt_ok=1 if visa_info.get("cpt_ok") else (0 if visa_info.get("cpt_ok") is False else None),
+        opt_ok=1 if visa_info.get("opt_ok") else (0 if visa_info.get("opt_ok") is False else None),
+        h1b_count=visa_info.get("h1b_count", 0),
+        sponsorship_notes=visa_info.get("sponsorship_notes", ""),
         **({"notion_page_id": notion_page_id} if notion_page_id else {}),
     )
 
